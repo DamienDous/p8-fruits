@@ -107,8 +107,7 @@ def predict_batch_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
 
 
 def get_label(row, resize=True):
-	print(row.image.origin)
-	return re.split('/', row.image.origin)[-2]
+	return re.split('/', row.origin)[-2]
 
 def set_label(dataframe_batch_iterator:
 					 Iterator[pd.DataFrame]) -> Iterator[pd.DataFrame]:
@@ -136,21 +135,21 @@ def main():
 	schema = StructType(StructType(images_df.select("image.*").schema.fields + [
 		StructField("label", StringType(), True)
 	]))
-	images_df = images_df.mapInPandas(set_label, schema)
+	images_label_df = images_df.select("image.*").mapInPandas(set_label, schema)
 
-	row = images_df.collect()[0]
-	Image.frombytes(mode='RGB', data=bytes(row.data_as_array),
+	row = images_label_df.collect()[0]
+	Image.frombytes(mode='RGB', data=bytes(row.data),
 					size=[row.width, row.height]).show()
 
 	# Resized images to be taken by ResNet50 model
-	schema = StructType(images_df.select("*").schema.fields + [
+	schema = StructType(images_label_df.select("*").schema.fields + [
 		StructField("data_as_resized_array", ArrayType(IntegerType()), True),
 		StructField("data_as_array", ArrayType(IntegerType()), True)
 	])
-	images_df = images_df.select(
+	resized_df = images_label_df.select(
 		"*").mapInPandas(resize_image_udf, schema)
 
-	images_df.printSchema()
+	resized_df.printSchema()
 
 	# Create ResNet model
 	model = create_model()
@@ -161,7 +160,7 @@ def main():
 	print(type(model_trained))
 
 	# Predict for an image
-	predicted_df = images_df.withColumn(
+	predicted_df = resized_df.withColumn(
 		"predictions", predict_batch_udf("data_as_resized_array"))
 
 	prediction_row = predicted_df.collect()[image_row]
