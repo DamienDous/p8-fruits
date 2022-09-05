@@ -6,6 +6,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType,\
 	IntegerType, FloatType, ArrayType, BinaryType
 from pyspark.sql.functions import col, pandas_udf, PandasUDFType
+from pyspark.ml.feature import PCA
 
 from PIL import Image
 import pandas as pd
@@ -21,6 +22,9 @@ from tensorflow.keras.layers import Dense, Conv2D, Flatten
 from pyspark import SparkContext, SparkConf
 from elephas.utils.rdd_utils import to_simple_rdd
 from elephas.spark_model import SparkModel
+from elephas.ml.adapter import to_data_frame
+
+from pyspark.ml.linalg import Vectors
 
 
 def get_label(row, resize=True):
@@ -47,7 +51,7 @@ def create_model():
 	# On entraîne seulement le nouveau classifieur et
 	# on ne ré-entraîne pas les autres couches :
 	for layer in model.layers:
-		layer.trainable = False
+		layer.trainable = True
 
 	# Ajouter la nouvelle couche fully-connected pour
 	# la classification à 2 classes
@@ -109,37 +113,51 @@ def preproprocess_batch(dataframe_batch_iterator:
 			preprocess_array, axis=1)
 		yield dataframe_batch
 
-
-def train_model(spark, model, dataframe):
-
-	# Train model
-	spark_model = SparkModel(model, frequency='epoch', mode='asynchronous')
-
-	rdd = dataframe.select("data_as_prepro_array", "label").rdd
-
-	print('HELLO', rdd)
-
-	spark_model.fit(dataframe.select("data_as_prepro_array", "label").rdd,
-					epochs=20, batch_size=32, verbose=0, validation_split=0.1)
-
+def normalize_array(arr):
+	return tf.keras.applications.resnet50.preprocess_input(
+		arr.reshape([224, 224, 3]))
 
 @pandas_udf(ArrayType(FloatType()))
-def predict_batch_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
-	model = ResNet50()
+def transform_batch_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
+	# Create ResNet model
+	model = ResNet50(weights="imagenet",
+					 include_top=True,
+					 input_shape=(224, 224, 3))
+	print(model.summary())
 	for input_array in iterator:
+		print('input_array', type(input_array))
+		print(input_array.shape)
+		print(input_array[0].shape)
+		print(input_array.map(normalize_array).shape)
 		normalized_input = np.stack(input_array.map(normalize_array))
+		print('normalized_input', type(normalized_input))
+		print(normalized_input.shape)
 		preds = model.predict(normalized_input)
-		yield pd.Series(list(preds))
+		print('preds', type(preds))
+		print(preds.shape)
+
+		preds_output = preds.reshape(input_array.shape[0], 7*7*2048)
+
+		print('preds_output', type(preds_output))
+		print(preds_output.shape)
+		liste = list(preds_output)
+		series = pd.Series(liste)
+		print(series.shape)
+		yield series
 
 
 def main():
 	# Generating Spark Context
-	conf = SparkConf().setAppName('MachineCurve').setMaster('local[8]')
-	#spark = SparkContext(conf=conf)
+	spark = (SparkSession.builder.master("local[1]")
+			.config("spark.driver.memory", "20g")
+			.config("spark.executor.memory", "10g")
+			.config("spark.driver.cores", "30")
+			.config("spark.num.executors", "8")
+			.config("spark.executor.cores", "4")
+			.getOrCreate())
+	sc = spark.sparkContext
 
 	# Load data in a spark dataframe
-	spark = SparkSession.builder.getOrCreate()
-
 	s3_url = "../data_sample/fruits-360_dataset/fruits-360/Training/"
 	images_df = spark.read.format("image").option(
 		"recursiveFileLookup", "true").load(s3_url)
@@ -157,7 +175,7 @@ def main():
 		StructField("data_as_resized_array", ArrayType(IntegerType()), True),
 		StructField("data_as_array", ArrayType(IntegerType()), True)
 	])
-	images_df = images_df.select("*").mapInPandas(resize_image_udf, schema)
+	images_df = images_df.mapInPandas(resize_image_udf, schema)
 
 	# Preprocess images to be taken by ResNet50 model
 	schema = StructType(images_df.select("*").schema.fields + [
@@ -167,24 +185,22 @@ def main():
 
 	print(images_df.printSchema())
 
-	# Create ResNet model
-	model = create_model()
-
-	# Train model
-	model_trained = train_model(spark, model, images_df)
-
-	print(type(model_trained))
-
 	# Predict for an image
-	predicted_df = images_df.withColumn(
-		"predictions", predict_batch_udf("data_as_resized_array"))
+	features_df = images_df.withColumn(
+		"predictions", transform_batch_udf("data_as_resized_array"))
 
-	prediction_row = predicted_df.collect()[image_row]
+	print(features_df)
 
-	print(tf.keras.applications.resnet50.decode_predictions(
-		np.array(prediction_row.predictions).reshape(1, 1000), top=5
-	))
+	pca = PCA(k=50, inputCol="features", outputCol="pcaFeatures")
+	#pca_features_df = pca.fit(features_df['predictions'])
 
+	# Mettre les predict df dans la base aws
+	features_row = pca_features_df.collect()[0]
+
+	#print(prediction_row.predictions)
+
+
+		StructField("data_as_resized_array", ArrayType(IntegerType()), True),
 
 if __name__ == "__main__":
 	main()
