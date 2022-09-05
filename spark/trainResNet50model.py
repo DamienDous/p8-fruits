@@ -2,6 +2,7 @@ import re
 from typing import Iterator
 
 from pyspark.sql import SparkSession
+
 from pyspark.sql.types import StructType, StructField, StringType,\
 	IntegerType, FloatType, ArrayType, BinaryType
 from pyspark.sql.functions import col, pandas_udf, PandasUDFType
@@ -20,6 +21,51 @@ from tensorflow.keras.layers import Dense, Conv2D, Flatten
 from pyspark import SparkContext, SparkConf
 from elephas.utils.rdd_utils import to_simple_rdd
 from elephas.spark_model import SparkModel
+
+
+def get_label(row, resize=True):
+	return re.split('/', row.origin)[-2]
+
+
+def set_label(dataframe_batch_iterator:
+			  Iterator[pd.DataFrame]) -> Iterator[pd.DataFrame]:
+	for dataframe_batch in dataframe_batch_iterator:
+		dataframe_batch["label"] = dataframe_batch.apply(
+			get_label, args=(True,), axis=1)
+		yield dataframe_batch
+
+
+def create_model():
+	# Charger ResNet50 pré-entraîné sur ImageNet et
+	# sans les couches fully-connected
+	model = ResNet50(weights="imagenet",
+					 include_top=False,
+					 input_shape=(224, 224, 3))
+	# Récupérer la sortie de ce réseau
+	x = model.output
+
+	# On entraîne seulement le nouveau classifieur et
+	# on ne ré-entraîne pas les autres couches :
+	for layer in model.layers:
+		layer.trainable = False
+
+	# Ajouter la nouvelle couche fully-connected pour
+	# la classification à 2 classes
+	predictions = Dense(2, activation='softmax')(x)
+
+	# Définir le nouveau modèle
+	new_model = Model(inputs=model.input, outputs=predictions)
+
+	# Compiler le modèle
+	new_model.compile(loss="categorical_crossentropy",
+					  optimizer=optimizers.SGD(lr=0.0001, momentum=0.9),
+					  metrics=["accuracy"])
+
+	# new_model.compile(loss=tensorflow.keras.losses.sparse_categorical_crossentropy,
+	#          optimizer=tensorflow.keras.optimizers.Adam(),
+	#          metrics=['accuracy'])
+
+	return new_model
 
 
 def convert_bgr_array_to_rgb_array(img_array):
@@ -50,51 +96,31 @@ def resize_image_udf(dataframe_batch_iterator:
 		yield dataframe_batch
 
 
-def normalize_array(arr):
-	return tf.keras.applications.resnet50.preprocess_input(
-		arr.reshape([224, 224, 3]))
+def preprocess_array(df):
+	obj = tf.keras.applications.resnet50.preprocess_input(
+		df.data_as_resized_array.reshape([224, 224, 3]))
+	return obj.reshape([224*224*3])
 
 
-def create_model():
-	# Charger ResNet50 pré-entraîné sur ImageNet et sans les couches fully-connected
-	model = ResNet50(weights="imagenet",
-					 include_top=False,
-					 input_shape=(224, 224, 3))
-	# Récupérer la sortie de ce réseau
-	x = model.output
-
-	# On entraîne seulement le nouveau classifieur et on ne ré-entraîne pas les autres couches :
-	for layer in model.layers:
-		layer.trainable = False
-
-	# Ajouter la nouvelle couche fully-connected pour la classification à 2 classes
-	predictions = Dense(2, activation='softmax')(x)
-
-	# Définir le nouveau modèle
-	new_model = Model(inputs=model.input, outputs=predictions)
-
-	# Compiler le modèle
-	new_model.compile(loss="categorical_crossentropy",
-					  optimizer=optimizers.SGD(lr=0.0001, momentum=0.9),
-					  metrics=["accuracy"])
-
-	#new_model.compile(loss=tensorflow.keras.losses.sparse_categorical_crossentropy,
-	#          optimizer=tensorflow.keras.optimizers.Adam(),
-	#          metrics=['accuracy'])
-
-	return new_model
+def preproprocess_batch(dataframe_batch_iterator:
+						Iterator[pd.DataFrame]) -> Iterator[pd.DataFrame]:
+	for dataframe_batch in dataframe_batch_iterator:
+		dataframe_batch["data_as_prepro_array"] = dataframe_batch.apply(
+			preprocess_array, axis=1)
+		yield dataframe_batch
 
 
 def train_model(spark, model, dataframe):
 
-	print(type(dataframe))
-
-	# Convert dataset to RDD
-	rdd = to_simple_rdd(spark, X_train, y_train)
-
 	# Train model
 	spark_model = SparkModel(model, frequency='epoch', mode='asynchronous')
-	spark_model.fit(rdd, epochs=20, batch_size=32, verbose=0, validation_split=0.1)
+
+	rdd = dataframe.select("data_as_prepro_array", "label").rdd
+
+	print('HELLO', rdd)
+
+	spark_model.fit(dataframe.select("data_as_prepro_array", "label").rdd,
+					epochs=20, batch_size=32, verbose=0, validation_split=0.1)
 
 
 @pandas_udf(ArrayType(FloatType()))
@@ -106,61 +132,51 @@ def predict_batch_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
 		yield pd.Series(list(preds))
 
 
-def get_label(row, resize=True):
-	return re.split('/', row.origin)[-2]
-
-def set_label(dataframe_batch_iterator:
-					 Iterator[pd.DataFrame]) -> Iterator[pd.DataFrame]:
-	for dataframe_batch in dataframe_batch_iterator:
-		dataframe_batch["label"] = dataframe_batch.apply(
-			get_label, args=(True,), axis=1)
-		yield dataframe_batch
-
 def main():
 	# Generating Spark Context
-	#conf = SparkConf().setAppName('MachineCurve').setMaster('local[8]')
+	conf = SparkConf().setAppName('MachineCurve').setMaster('local[8]')
 	#spark = SparkContext(conf=conf)
 
 	# Load data in a spark dataframe
 	spark = SparkSession.builder.getOrCreate()
 
 	s3_url = "../data_sample/fruits-360_dataset/fruits-360/Training/"
-	images_df = spark.read.format("image").option("recursiveFileLookup", "true").load(s3_url)
+	images_df = spark.read.format("image").option(
+		"recursiveFileLookup", "true").load(s3_url)
 
 	print((images_df.count(), len(images_df.columns)))
-
-	images_df.printSchema()
 
 	# Add label in images_df
 	schema = StructType(StructType(images_df.select("image.*").schema.fields + [
 		StructField("label", StringType(), True)
 	]))
-	images_label_df = images_df.select("image.*").mapInPandas(set_label, schema)
-
-	row = images_label_df.collect()[0]
-	Image.frombytes(mode='RGB', data=bytes(row.data),
-					size=[row.width, row.height]).show()
+	images_df = images_df.select("image.*").mapInPandas(set_label, schema)
 
 	# Resized images to be taken by ResNet50 model
-	schema = StructType(images_label_df.select("*").schema.fields + [
+	schema = StructType(images_df.select("*").schema.fields + [
 		StructField("data_as_resized_array", ArrayType(IntegerType()), True),
 		StructField("data_as_array", ArrayType(IntegerType()), True)
 	])
-	resized_df = images_label_df.select(
-		"*").mapInPandas(resize_image_udf, schema)
+	images_df = images_df.select("*").mapInPandas(resize_image_udf, schema)
 
-	resized_df.printSchema()
+	# Preprocess images to be taken by ResNet50 model
+	schema = StructType(images_df.select("*").schema.fields + [
+		StructField("data_as_prepro_array", ArrayType(FloatType()), True)
+	])
+	images_df = images_df.select("*").mapInPandas(preproprocess_batch, schema)
+
+	print(images_df.printSchema())
 
 	# Create ResNet model
 	model = create_model()
 
 	# Train model
-	model_trained = train_model(spark, model, resized_df)
+	model_trained = train_model(spark, model, images_df)
 
 	print(type(model_trained))
 
 	# Predict for an image
-	predicted_df = resized_df.withColumn(
+	predicted_df = images_df.withColumn(
 		"predictions", predict_batch_udf("data_as_resized_array"))
 
 	prediction_row = predicted_df.collect()[image_row]
