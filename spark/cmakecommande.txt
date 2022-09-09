@@ -1,0 +1,40 @@
+cmake -B /Users/damiendous/opencv/build -S /Users/damiendous/opencv \
+    -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+    -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+    -DWITH_OPENJPEG=OFF \
+    -DWITH_IPP=OFF \
+    -D CMAKE_BUILD_TYPE=RELEASE \
+    -D CMAKE_SOURCE_DIR=/Users/damiendous/opencv/ \
+    -D CMAKE_INSTALL_PREFIX=/usr/local \
+    -D OPENCV_EXTRA_MODULES_PATH=/Users/damiendous/opencv/opencv_contrib-3.4.2/modules \
+    -D PYTHON3_LIBRARY=~/opt/anaconda3/lib/python3.9 \
+    -D PYTHON3_INCLUDE_DIR=/Users/damiendous/opt/anaconda3/include/python3.9 \
+    -D PYTHON3_EXECUTABLE=/Users/damiendous/opt/anaconda3/bin/python3 \
+    -D PYTHON3_PACKAGES_PATH=/Users/damiendous/opt/anaconda3/lib/python3.9/site-packages \
+    -D INSTALL_PYTHON_EXAMPLES=OFF \
+    -D INSTALL_C_EXAMPLES=OFF \
+    -D BUILD_opencv_python2=OFF \
+    -D BUILD_opencv_python3=ON \
+    -D OPENCV_ENABLE_NONFREE=ON \
+    -D BUILD_TESTS=OFF \
+    -D BUILD_PERF_TESTS=OFF \
+    -D BUILD_opencv_java=OFF \
+    -D ENABLE_PRECOMPILED_HEADERS=OFF \
+    -D BUILD_opencv_legacy=OFF \
+    -D WITH_VTK=OFF \
+    -D BUILD_EXAMPLES=OFF \
+    -D BUILD_JAVA=OFF \
+    -D BUILD_opencv_java_bindings_generator=OFF \
+    -D WITH_MATLAB=OFF \
+    -D BUILD_opencv_freetype=OFF \
+    -D BUILD_opencv_text=OFF
+
+
+    -Wno-error=implicit-function-declaration \
+    -D PYTHON2_EXECUTABLE=~/opt/anaconda3/bin/python \
+    -D CXXFLAGS="-std=c++14" \
+    -D CMAKE_CXX_FLAGS=-isystem\ /usr/local/Cellar/tesseract/5.1.0/include \
+    -D FREETYPE_LIBRARIES=/Users/damiendous/opt/anaconda3/pkgs/freetype-2.11.0-hd8bbffd_0/lib/libfreetype.a \
+    -D HARFBUZZ_LIBRARIES=/usr/local/Cellar/harfbuzz/4.3.0/lib/libharfbuzz.a \
+    -D FREETYPE_INCLUDE_DIRS=/Users/damiendous/opt/anaconda3/pkgs/freetype-2.11.0-hd8bbffd_0/include/freetype2/ \
+    -D HARFBUZZ_INCLUDE_DIRS=/usr/local/Cellar/harfbuzz/4.3.0/include \
