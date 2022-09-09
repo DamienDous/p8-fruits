@@ -108,11 +108,11 @@ def set_label(dataframe_batch_iterator:
 
 def main():
 	# Generating Spark Context
-	spark = (SparkSession.builder.master("local[1]").getOrCreate())
+	spark = (SparkSession.builder.master("local[8]").getOrCreate())
 
 	# Load images with spark
-	s3_url = "../data_sample/fruits-360_dataset/fruits-360/Training/"
-	images_df = spark.read.format("image").option(
+	s3_url = "../data_sampl/fruits-360_dataset/fruits-360/Training/"
+	images_sdf = spark.read.format("image").option(
 		"recursiveFileLookup", "true").load(s3_url)
 
 	# Add label in images_sdf
