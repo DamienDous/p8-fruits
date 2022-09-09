@@ -82,8 +82,6 @@ def process_features_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
 		yield series
 
 
-def dense_to_sparse(array):
-	return _convert_to_vector(scipy.sparse.csc_matrix(array).T)
 
 
 def main():
@@ -106,11 +104,6 @@ def main():
 	images_sdf = images_sdf.withColumn(
 		"features", process_features_udf("data_as_array"))
 
-	to_sparse = udf(dense_to_sparse, VectorUDT())
-	features_df = features_df.withColumn(
-		"sparse_features", to_sparse(col("features")))
-
-	# Convert array in features column to DenseVector
 	to_dense = udf(lambda vs: Vectors.dense(vs), VectorUDT())
 	images_sdf = images_sdf.withColumn(
 		"dense_features", to_dense(col("features")))
