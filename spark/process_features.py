@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import re
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 from typing import Iterator
 
@@ -140,6 +141,24 @@ def main():
 	pca.setOutputCol("pca_features")
 	model = pca.fit(images_sdf.select("dense_features"))
 	pca_features = model.transform(images_sdf.select("dense_features"))
+
+	# VISUALIZATION
+	image_label = images_sdf.select("label").toPandas()
+	label_map = dict(zip(set(image_label['label']),
+						 range(len(image_label['label']))))
+	image_label['int'] = image_label['label'].map(label_map)
+
+	reduce_image_df = pd.DataFrame(
+		pca_features.toPandas()["pca_features"].to_list(),
+		columns=['feature1', 'feature2'])
+
+	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(12, 9))
+	scatter = ax.scatter(reduce_image_df["feature1"],
+						 reduce_image_df["feature2"],
+						 c=image_label['int'], cmap='Set1')
+	ax.set_title(
+		'Image projection colored by categories', fontsize=20)
+	plt.show()
 
 	# # Print columns type
 	# for col in features_df.dtypes:
