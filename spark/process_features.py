@@ -1,3 +1,5 @@
+import time
+from contextlib import contextmanager
 
 import re
 import pandas as pd
@@ -23,6 +25,12 @@ from PIL import Image
 
 RESNET_HEIGHT = 224
 RESNET_WIDTH = 224
+
+@contextmanager
+def timer(title):
+	t0 = time.time()
+	yield
+	print("{} - done in {:.0f}s".format(title, time.time() - t0))
 
 
 def convert_bgr_to_rgb(img_array):
