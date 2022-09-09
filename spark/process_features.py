@@ -1,4 +1,5 @@
 
+import re
 import pandas as pd
 import numpy as np
 
@@ -82,6 +83,18 @@ def process_features_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
 		yield series
 
 
+def dense_to_sparse(array):
+	return _convert_to_vector(scipy.sparse.csc_matrix(array).T)
+def get_label(row, resize=True):
+	return re.split('/', row.origin)[-2]
+
+
+def set_label(dataframe_batch_iterator:
+			  Iterator[pd.DataFrame]) -> Iterator[pd.DataFrame]:
+	for dataframe_batch in dataframe_batch_iterator:
+		dataframe_batch["label"] = dataframe_batch.apply(
+			get_label, args=(True,), axis=1)
+		yield dataframe_batch
 
 
 def main():
@@ -93,12 +106,18 @@ def main():
 	images_df = spark.read.format("image").option(
 		"recursiveFileLookup", "true").load(s3_url)
 
+	# Add label in images_sdf
+	schema = StructType(images_sdf.select("image.*").schema.fields + [
+		StructField("label", StringType(), True)
+	])
+	images_sdf = images_sdf.select(
+		"image.*").mapInPandas(set_label, schema)
+
 	# Preprocess images to be taken by ResNet50 model
-	schema = StructType(images_df.select("image.*").schema.fields + [
+	schema = StructType(images_sdf.schema.fields + [
 		StructField("data_as_array", ArrayType(IntegerType()), True)
 	])
-	image_arrays_df = images_df.select(
-		"image.*").mapInPandas(prepro_image_udf, schema)
+	images_sdf = images_sdf.mapInPandas(prepro_image_udf, schema)
 
 	# Get ResNet50 features
 	images_sdf = images_sdf.withColumn(
