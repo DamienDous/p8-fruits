@@ -92,8 +92,6 @@ def process_features_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
 		yield series
 
 
-def dense_to_sparse(array):
-	return _convert_to_vector(scipy.sparse.csc_matrix(array).T)
 def get_label(row, resize=True):
 	return re.split('/', row.origin)[-2]
 
