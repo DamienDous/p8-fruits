@@ -107,40 +107,41 @@ def set_label(dataframe_batch_iterator:
 
 
 def main():
-	# Generating Spark Context
-	spark = (SparkSession.builder.master("local[8]").getOrCreate())
+	with timer('PCA process'):
+		# Generating Spark Context
+		spark = (SparkSession.builder.master("local[8]").getOrCreate())
 
-	# Load images with spark
-	s3_url = "../data_sampl/fruits-360_dataset/fruits-360/Training/"
-	images_sdf = spark.read.format("image").option(
-		"recursiveFileLookup", "true").load(s3_url)
+		# Load images with spark
+		s3_url = "../data_sample/fruits-360_dataset/fruits-360/Training/"
+		images_sdf = spark.read.format("image").option(
+			"recursiveFileLookup", "true").load(s3_url)
 
-	# Add label in images_sdf
-	schema = StructType(images_sdf.select("image.*").schema.fields + [
-		StructField("label", StringType(), True)
-	])
-	images_sdf = images_sdf.select(
-		"image.*").mapInPandas(set_label, schema)
+		# Add label in images_sdf
+		schema = StructType(images_sdf.select("image.*").schema.fields + [
+			StructField("label", StringType(), True)
+		])
+		images_sdf = images_sdf.select(
+			"image.*").mapInPandas(set_label, schema)
 
-	# Preprocess images to be taken by ResNet50 model
-	schema = StructType(images_sdf.schema.fields + [
-		StructField("data_as_array", ArrayType(IntegerType()), True)
-	])
-	images_sdf = images_sdf.mapInPandas(prepro_image_udf, schema)
+		# Preprocess images to be taken by ResNet50 model
+		schema = StructType(images_sdf.schema.fields + [
+			StructField("data_as_array", ArrayType(IntegerType()), True)
+		])
+		images_sdf = images_sdf.mapInPandas(prepro_image_udf, schema)
 
-	# Get ResNet50 features
-	images_sdf = images_sdf.withColumn(
-		"features", process_features_udf("data_as_array"))
+		# Get ResNet50 features
+		images_sdf = images_sdf.withColumn(
+			"features", process_features_udf("data_as_array"))
 
-	to_dense = udf(lambda vs: Vectors.dense(vs), VectorUDT())
-	images_sdf = images_sdf.withColumn(
-		"dense_features", to_dense(col("features")))
+		# Convert array in features column to sparse DenseVector
+		to_dense = udf(lambda vs: Vectors.dense(vs), VectorUDT())
+		images_sdf = images_sdf.withColumn(
+			"dense_features", to_dense(col("features")))
 
-	# Apply PCA to dense_features column
-	pca = PCA(k=2, inputCol="dense_features")
-	pca.setOutputCol("pca_features")
-	model = pca.fit(images_sdf.select("dense_features"))
-	pca_features = model.transform(images_sdf.select("dense_features"))
+		pca = PCA(k=2, inputCol="dense_features")
+		pca.setOutputCol("pca_features")
+		model = pca.fit(images_sdf.select("dense_features"))
+		pca_features = model.transform(images_sdf.select("dense_features"))
 
 	# VISUALIZATION
 	image_label = images_sdf.select("label").toPandas()
