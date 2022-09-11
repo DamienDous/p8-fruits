@@ -110,7 +110,7 @@ def main():
 		spark = (SparkSession.builder.master("local[8]").getOrCreate())
 
 		# Load images with spark
-		s3_url = "../data_sample/fruits-360_dataset/fruits-360/Training/"
+		s3_url = "../data/data_sampl/fruits-360_dataset/fruits-360/Training/"
 		images_sdf = spark.read.format("image").option(
 			"recursiveFileLookup", "true").load(s3_url)
 
