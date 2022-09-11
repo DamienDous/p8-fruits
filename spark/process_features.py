@@ -27,6 +27,25 @@ from PIL import Image
 RESNET_HEIGHT = 224
 RESNET_WIDTH = 224
 
+# Generating Spark Context
+spark = (SparkSession.builder.master("local[8]").getOrCreate())
+
+# import model with weights
+model = resnet.ResNet50(weights="imagenet",
+						include_top=False,
+						input_shape=(RESNET_WIDTH, RESNET_HEIGHT, 3))
+# broadcast weights of the initial model
+weights_ = spark.sparkContext.broadcast(model.get_weights())
+
+
+def model_():  # Create model and add boadcasting weights
+	# Create model without weights
+	model = resnet.ResNet50(weights=None, include_top=False)
+	# Import weights from broadcasting weights
+	model.set_weights(weights_.value)
+	return model
+
+
 @contextmanager
 def timer(title):
 	t0 = time.time()
@@ -67,9 +86,7 @@ def prepro_image_udf(dataframe_batch_iterator:
 @pandas_udf(ArrayType(FloatType()))
 def process_features_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
 	# Create ResNet model
-	model = resnet.ResNet50(weights="imagenet",
-							include_top=False,
-							input_shape=(RESNET_WIDTH, RESNET_HEIGHT, 3))
+	model = model_()
 	# Apply ResNet50 features process on each batch
 	for series_batch in iterator:
 		# Reshape batch array to be process by ResNet50 model
@@ -106,9 +123,6 @@ def set_label(dataframe_batch_iterator:
 
 def main():
 	with timer('main process'):
-		# Generating Spark Context
-		spark = (SparkSession.builder.master("local[8]").getOrCreate())
-
 		# Load images with spark
 		s3_url = "../data/data_sampl/fruits-360_dataset/fruits-360/Training/"
 		images_sdf = spark.read.format("image").option(
