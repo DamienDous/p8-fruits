@@ -107,7 +107,7 @@ def set_label(dataframe_batch_iterator:
 
 
 def main():
-	with timer('PCA process'):
+	with timer('main process'):
 		# Generating Spark Context
 		spark = (SparkSession.builder.master("local[8]").getOrCreate())
 
