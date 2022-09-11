@@ -131,11 +131,11 @@ def main():
 		images_sdf = images_sdf.withColumn(
 			"features", process_features_udf("data_as_array"))
 
-		# Convert array in features column to sparse DenseVector
 		to_dense = udf(lambda vs: Vectors.dense(vs), VectorUDT())
 		images_sdf = images_sdf.withColumn(
 			"dense_features", to_dense(col("features")))
-
+		
+		# Apply PCA to dense_features column
 		pca = PCA(k=2, inputCol="dense_features")
 		pca.setOutputCol("pca_features")
 		model = pca.fit(images_sdf.select("dense_features"))
