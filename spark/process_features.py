@@ -20,6 +20,7 @@ import scipy.sparse
 
 from sklearn.decomposition import IncrementalPCA
 import tensorflow.keras.applications.resnet50 as resnet
+from keras.models import Model
 import tensorflow as tf
 
 from PIL import Image
@@ -29,18 +30,19 @@ RESNET_WIDTH = 224
 
 # Generating Spark Context
 spark = (SparkSession.builder.master("local[8]").getOrCreate())
-
 # import model with weights
 model = resnet.ResNet50(weights="imagenet",
-						include_top=False,
 						input_shape=(RESNET_WIDTH, RESNET_HEIGHT, 3))
+model = Model(inputs=model.inputs, outputs=model.layers[-2].output)
 # broadcast weights of the initial model
 weights_ = spark.sparkContext.broadcast(model.get_weights())
 
 
 def model_():  # Create model and add boadcasting weights
 	# Create model without weights
-	model = resnet.ResNet50(weights=None, include_top=False)
+	model = resnet.ResNet50(weights=None)
+	model = Model(inputs=model.inputs,
+				  outputs=model.layers[-2].output)
 	# Import weights from broadcasting weights
 	model.set_weights(weights_.value)
 	return model
@@ -99,13 +101,8 @@ def process_features_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
 		tensor_batch = np.stack(res_prepro_batch)
 		# Predict features with ResNet50
 		features = model.predict(tensor_batch)
-		# Reshape features as series_length*1-dimensional array
-		features_output = features.reshape(features.shape[0],
-										   features.shape[1] *
-										   features.shape[2] *
-										   features.shape[3])
 		# Transform array in series
-		series = pd.Series(list(features_output))
+		series = pd.Series(list(features))
 		yield series
 
 
