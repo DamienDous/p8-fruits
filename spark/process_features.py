@@ -16,12 +16,8 @@ from pyspark.ml.linalg import Vectors, _convert_to_vector, VectorUDT
 from pyspark.ml.feature import PCA
 from pyspark.ml.feature import VectorAssembler
 
-import scipy.sparse
-
-from sklearn.decomposition import IncrementalPCA
 import tensorflow.keras.applications.resnet50 as resnet
 from keras.models import Model
-import tensorflow as tf
 
 from PIL import Image
 
