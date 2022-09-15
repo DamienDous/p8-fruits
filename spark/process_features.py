@@ -24,8 +24,13 @@ from PIL import Image
 RESNET_HEIGHT = 224
 RESNET_WIDTH = 224
 
-# Generating Spark Context
-spark = (SparkSession.builder.master("local[8]").getOrCreate())
+
+# Instantiate spark to be connected with aws
+spark = SparkSession.builder.master("local[8]").getOrCreate()
+spark._jsc.hadoopConfiguration().set('fs.s3a.access.key', '')
+spark._jsc.hadoopConfiguration().set(
+	'fs.s3a.secret.key', '')
+
 # import model with weights
 model = resnet.ResNet50(weights="imagenet",
 						input_shape=(RESNET_WIDTH, RESNET_HEIGHT, 3))
@@ -114,12 +119,16 @@ def set_label(dataframe_batch_iterator:
 		yield dataframe_batch
 
 
+def array_to_string(my_list):
+	return '[' + ','.join([str(elem) for elem in my_list]) + ']'
+
+
 def main():
 	with timer('main process'):
 		# Load images with spark
-		s3_url = "../data/data_sampl/fruits-360_dataset/fruits-360/Training/"
+		filePath = "s3a://p8-recognize-fruits-bucket/data_sample/fruits-360_dataset/fruits-360/Training/"
 		images_sdf = spark.read.format("image").option(
-			"recursiveFileLookup", "true").load(s3_url)
+			"recursiveFileLookup", "true").load(filePath)
 
 		# Add label in images_sdf
 		schema = StructType(images_sdf.select("image.*").schema.fields + [
@@ -147,6 +156,23 @@ def main():
 		pca.setOutputCol("pca_features")
 		model = pca.fit(images_sdf.select("dense_features"))
 		pca_features = model.transform(images_sdf.select("dense_features"))
+
+		images_sdf.printSchema()
+		pca_features.printSchema()
+
+
+		sdf = images_sdf.select('origin', 'label', 'dense_features').join(
+			pca_features.select('pca_features', 'dense_features'),
+			on=["dense_features"]).drop("dense_features")
+
+		sdf.printSchema()
+
+		array_to_string_udf = udf(array_to_string, StringType())
+		sdf = sdf.withColumn(
+			'pca_features', array_to_string_udf(sdf["pca_features"]))
+		sdf.coalesce(1).write.format('csv')\
+			.mode("overwrite").option('header', 'true')\
+			.save("result")
 
 	# VISUALIZATION
 	with timer('Visu'):
