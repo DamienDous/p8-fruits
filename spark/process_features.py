@@ -107,7 +107,7 @@ def process_features_udf(iterator: Iterator[pd.Series]) -> Iterator[pd.Series]:
 		yield series
 
 
-def get_label(row, resize=True):
+def get_label(row):
 	return re.split('/', row.origin)[-2]
 
 
@@ -115,7 +115,7 @@ def set_label(dataframe_batch_iterator:
 			  Iterator[pd.DataFrame]) -> Iterator[pd.DataFrame]:
 	for dataframe_batch in dataframe_batch_iterator:
 		dataframe_batch["label"] = dataframe_batch.apply(
-			get_label, args=(True,), axis=1)
+			get_label, axis=1)
 		yield dataframe_batch
 
 
