@@ -157,15 +157,10 @@ def main():
 		model = pca.fit(images_sdf.select("dense_features"))
 		pca_features = model.transform(images_sdf.select("dense_features"))
 
-		images_sdf.printSchema()
-		pca_features.printSchema()
-
 
 		sdf = images_sdf.select('origin', 'label', 'dense_features').join(
 			pca_features.select('pca_features', 'dense_features'),
 			on=["dense_features"]).drop("dense_features")
-
-		sdf.printSchema()
 
 		array_to_string_udf = udf(array_to_string, StringType())
 		sdf = sdf.withColumn(
